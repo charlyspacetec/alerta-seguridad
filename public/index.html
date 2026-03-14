@@ -231,6 +231,17 @@
       body: JSON.stringify({ nombre, direccion, numero_emergencia: numero, tipo })
     });
     const data = await r.json();
+    console.log('Respuesta servidor:', data);
+
+    if (!data.device_id) {
+      document.getElementById('nuevoResult').innerHTML = `
+        <div class="card" style="border-left-color:#ef4444;">
+          <div class="card-title" style="color:#ef4444;">❌ Error</div>
+          <div class="card-detail">${JSON.stringify(data)}</div>
+        </div>
+      `;
+      return;
+    }
 
     document.getElementById('nuevoResult').innerHTML = `
       <div class="card online">
