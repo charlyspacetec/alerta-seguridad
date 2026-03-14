@@ -223,10 +223,11 @@
     const numero    = document.getElementById('n_numero').value;
     if (!nombre || !direccion || !numero) { toast('Completá todos los campos', '#ef4444'); return; }
 
+    const tipo    = document.getElementById('n_tipo').value;
     const r = await fetch(`${API}/api/admin/clientes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-admin-key': ADMIN_KEY },
-      body: JSON.stringify({ nombre, direccion, numero_emergencia: numero })
+      body: JSON.stringify({ nombre, direccion, numero_emergencia: numero, tipo })
     });
     const data = await r.json();
 
