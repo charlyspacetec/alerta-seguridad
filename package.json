@@ -1,6 +1,7 @@
-"name": "alerta-seguridad",
+{
+  "name": "alerta-seguridad",
   "version": "1.0.0",
-  "description": "Sistema de alarma con notificación automática",
+  "description": "Sistema de alarma con notificacion automatica",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
