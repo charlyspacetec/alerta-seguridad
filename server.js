@@ -25,6 +25,7 @@ async function initDB() {
       direccion TEXT NOT NULL,
       numero_emergencia TEXT NOT NULL,
       device_id TEXT UNIQUE NOT NULL,
+      tipo TEXT DEFAULT 'alarma',
       ultimo_heartbeat TIMESTAMP,
       activo BOOLEAN DEFAULT true,
       creado_en TIMESTAMP DEFAULT NOW()
@@ -152,13 +153,13 @@ app.post('/api/admin/clientes', async (req, res) => {
   if (req.headers['x-admin-key'] !== process.env.ADMIN_KEY)
     return res.status(401).json({ error: 'No autorizado' });
 
-  const { nombre, direccion, numero_emergencia } = req.body;
+  const { nombre, direccion, numero_emergencia, tipo = 'alarma' } = req.body;
   const device_id = uuidv4(); // ID único para el ESP32
 
   await db.query(
-    'INSERT INTO clientes (nombre, direccion, numero_emergencia, device_id) VALUES ($1,$2,$3,$4)',
-    [nombre, direccion, numero_emergencia, device_id]
-  );
+    'INSERT INTO clientes (nombre, direccion, numero_emergencia, device_id, tipo) VALUES ($1,$2,$3,$4,$5)',
+    [nombre, direccion, numero_emergencia, device_id, tipo]
+    );
 
   res.json({ ok: true, device_id, mensaje: 'Cliente creado. Grabar device_id en el ESP32.' });
 });
