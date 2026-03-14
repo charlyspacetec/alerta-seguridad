@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panel de Control — Alerta Seguridad</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+  header { background: #1e293b; padding: 20px; border-bottom: 2px solid #ef4444; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 1.3rem; color: #f1f5f9; }
+  header span { font-size: 1.8rem; }
+  .login { max-width: 380px; margin: 80px auto; background: #1e293b; padding: 32px; border-radius: 12px; }
+  .login h2 { margin-bottom: 20px; color: #f1f5f9; }
+  input, select { width: 100%; padding: 10px 14px; margin-bottom: 14px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 1rem; }
+  button { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 0.95rem; font-weight: bold; transition: opacity 0.2s; }
+  button:hover { opacity: 0.85; }
+  .btn-primary { background: #ef4444; color: white; width: 100%; }
+  .btn-success { background: #22c55e; color: white; }
+  .btn-warning { background: #f59e0b; color: white; }
+  .btn-small { padding: 6px 12px; font-size: 0.8rem; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
+  .tab { padding: 10px 20px; border-radius: 8px; background: #1e293b; color: #94a3b8; cursor: pointer; border: none; font-size: 0.95rem; }
+  .tab.active { background: #ef4444; color: white; }
+  .card { background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; border-left: 4px solid #334155; }
+  .card.online { border-left-color: #22c55e; }
+  .card.offline { border-left-color: #ef4444; }
+  .card-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .card-title { font-size: 1rem; font-weight: bold; color: #f1f5f9; }
+  .badge { padding: 3px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; }
+  .badge-online { background: #166534; color: #86efac; }
+  .badge-offline { background: #7f1d1d; color: #fca5a5; }
+  .badge-alarma { background: #7f1d1d; color: #fca5a5; }
+  .badge-heartbeat { background: #1e3a5f; color: #93c5fd; }
+  .card-detail { font-size: 0.85rem; color: #94a3b8; margin-bottom: 4px; }
+  .form-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .form-row input { flex: 1; min-width: 180px; }
+  .section-title { font-size: 1.1rem; font-weight: bold; color: #f1f5f9; margin-bottom: 16px; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .stat { background: #1e293b; border-radius: 10px; padding: 16px; text-align: center; }
+  .stat-num { font-size: 2rem; font-weight: bold; }
+  .stat-label { font-size: 0.8rem; color: #94a3b8; margin-top: 4px; }
+  .green { color: #22c55e; }
+  .red { color: #ef4444; }
+  .yellow { color: #f59e0b; }
+  .empty { text-align: center; color: #475569; padding: 40px; }
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; justify-content: center; align-items: center; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: #1e293b; border-radius: 12px; padding: 28px; width: 90%; max-width: 440px; }
+  .modal h3 { margin-bottom: 16px; color: #f1f5f9; }
+  .modal-btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+  .btn-cancel { background: #334155; color: #e2e8f0; }
+  #toast { position: fixed; bottom: 24px; right: 24px; background: #22c55e; color: white; padding: 12px 20px; border-radius: 8px; font-weight: bold; display: none; z-index: 200; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginSection">
+  <div class="login">
+    <h2>🔐 Panel de Control</h2>
+    <input type="password" id="adminKey" placeholder="Clave de administrador" />
+    <button class="btn-primary" onclick="login()">Ingresar</button>
+    <p id="loginError" style="color:#ef4444;margin-top:10px;font-size:0.85rem;"></p>
+  </div>
+</div>
+
+<!-- PANEL -->
+<div id="panelSection" style="display:none;">
+  <header>
+    <span>🚨</span>
+    <h1>Alerta Seguridad — Panel de Control</h1>
+  </header>
+
+  <div class="container">
+    <!-- Stats -->
+    <div class="stat-grid" id="stats"></div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" onclick="showTab('clientes')">👥 Clientes</button>
+      <button class="tab" onclick="showTab('eventos')">📋 Historial</button>
+      <button class="tab" onclick="showTab('nuevo')">➕ Nuevo Cliente</button>
+    </div>
+
+    <!-- Tab Clientes -->
+    <div id="tab-clientes">
+      <div class="section-title">Dispositivos activos</div>
+      <div id="listaClientes"></div>
+    </div>
+
+    <!-- Tab Eventos -->
+    <div id="tab-eventos" style="display:none;">
+      <div class="section-title">Últimos 100 eventos</div>
+      <div id="listaEventos"></div>
+    </div>
+
+    <!-- Tab Nuevo -->
+    <div id="tab-nuevo" style="display:none;">
+      <div class="card">
+        <div class="section-title">Registrar nuevo cliente</div>
+        <div class="form-row">
+          <input id="n_nombre" placeholder="Nombre completo" />
+          <input id="n_direccion" placeholder="Dirección" />
+        </div>
+        <div class="form-row">
+          <input id="n_numero" placeholder="Número de emergencia (+549...)" />
+        </div>
+        <button class="btn-success" onclick="crearCliente()">Crear cliente y generar ID de dispositivo</button>
+        <div id="nuevoResult" style="margin-top:16px;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR -->
+<div class="modal-overlay" id="modalEditar">
+  <div class="modal">
+    <h3>✏️ Editar cliente</h3>
+    <input id="e_nombre" placeholder="Nombre" />
+    <input id="e_direccion" placeholder="Dirección" />
+    <input id="e_numero" placeholder="Número de emergencia" />
+    <input type="hidden" id="e_device_id" />
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn-success" onclick="guardarEdicion()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  let ADMIN_KEY = '';
+  const API = '';
+
+  function login() {
+    ADMIN_KEY = document.getElementById('adminKey').value;
+    if (!ADMIN_KEY) return;
+    fetch(`${API}/api/admin/clientes`, { headers: { 'x-admin-key': ADMIN_KEY } })
+      .then(r => {
+        if (r.status === 401) { document.getElementById('loginError').textContent = 'Clave incorrecta'; return; }
+        document.getElementById('loginSection').style.display = 'none';
+        document.getElementById('panelSection').style.display = 'block';
+        cargarTodo();
+        setInterval(cargarTodo, 30000); // auto-refresh cada 30s
+      });
+  }
+
+  function showTab(tab) {
+    ['clientes','eventos','nuevo'].forEach(t => {
+      document.getElementById(`tab-${t}`).style.display = t === tab ? 'block' : 'none';
+    });
+    document.querySelectorAll('.tab').forEach((el, i) => {
+      el.classList.toggle('active', ['clientes','eventos','nuevo'][i] === tab);
+    });
+    if (tab === 'eventos') cargarEventos();
+  }
+
+  function cargarTodo() {
+    cargarClientes();
+  }
+
+  async function cargarClientes() {
+    const r = await fetch(`${API}/api/admin/clientes`, { headers: { 'x-admin-key': ADMIN_KEY } });
+    const clientes = await r.json();
+
+    const online  = clientes.filter(c => c.estado === 'online').length;
+    const offline = clientes.filter(c => c.estado === 'offline').length;
+
+    document.getElementById('stats').innerHTML = `
+      <div class="stat"><div class="stat-num">${clientes.length}</div><div class="stat-label">Total clientes</div></div>
+      <div class="stat"><div class="stat-num green">${online}</div><div class="stat-label">Online</div></div>
+      <div class="stat"><div class="stat-num red">${offline}</div><div class="stat-label">Offline</div></div>
+    `;
+
+    const lista = document.getElementById('listaClientes');
+    if (!clientes.length) { lista.innerHTML = '<div class="empty">No hay clientes registrados</div>'; return; }
+
+    lista.innerHTML = clientes.map(c => `
+      <div class="card ${c.estado}">
+        <div class="card-header">
+          <div class="card-title">${c.nombre}</div>
+          <span class="badge badge-${c.estado}">${c.estado.toUpperCase()}</span>
+        </div>
+        <div class="card-detail">📍 ${c.direccion}</div>
+        <div class="card-detail">📞 ${c.numero_emergencia}</div>
+        <div class="card-detail">🔑 ID: <code style="font-size:0.75rem;color:#64748b">${c.device_id}</code></div>
+        <div class="card-detail">⏱ Último heartbeat: ${c.ultimo_heartbeat ? new Date(c.ultimo_heartbeat).toLocaleString('es-AR') : 'Nunca'}</div>
+        <div style="margin-top:12px;">
+          <button class="btn-warning btn-small" onclick="abrirModal('${c.device_id}','${c.nombre}','${c.direccion}','${c.numero_emergencia}')">✏️ Editar</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  async function cargarEventos() {
+    const r = await fetch(`${API}/api/admin/eventos`, { headers: { 'x-admin-key': ADMIN_KEY } });
+    const eventos = await r.json();
+    const lista = document.getElementById('listaEventos');
+    if (!eventos.length) { lista.innerHTML = '<div class="empty">Sin eventos registrados</div>'; return; }
+    lista.innerHTML = eventos.map(e => `
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">${e.nombre || e.device_id}</div>
+          <span class="badge badge-${e.tipo === 'ALARMA' ? 'alarma' : 'heartbeat'}">${e.tipo}</span>
+        </div>
+        <div class="card-detail">📍 ${e.direccion || ''}</div>
+        <div class="card-detail">📝 ${e.detalle}</div>
+        <div class="card-detail">🕐 ${new Date(e.creado_en).toLocaleString('es-AR')}</div>
+      </div>
+    `).join('');
+  }
+
+  async function crearCliente() {
+    const nombre    = document.getElementById('n_nombre').value;
+    const direccion = document.getElementById('n_direccion').value;
+    const numero    = document.getElementById('n_numero').value;
+    if (!nombre || !direccion || !numero) { toast('Completá todos los campos', '#ef4444'); return; }
+
+    const r = await fetch(`${API}/api/admin/clientes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-key': ADMIN_KEY },
+      body: JSON.stringify({ nombre, direccion, numero_emergencia: numero })
+    });
+    const data = await r.json();
+
+    document.getElementById('nuevoResult').innerHTML = `
+      <div class="card online">
+        <div class="card-title">✅ Cliente creado</div>
+        <div class="card-detail" style="margin-top:8px;">Grabá este ID en el ESP32:</div>
+        <div style="background:#0f172a;padding:12px;border-radius:8px;margin-top:8px;word-break:break-all;font-family:monospace;color:#22c55e;font-size:0.9rem;">${data.device_id}</div>
+      </div>
+    `;
+    ['n_nombre','n_direccion','n_numero'].forEach(id => document.getElementById(id).value = '');
+    cargarClientes();
+  }
+
+  function abrirModal(device_id, nombre, direccion, numero) {
+    document.getElementById('e_device_id').value  = device_id;
+    document.getElementById('e_nombre').value     = nombre;
+    document.getElementById('e_direccion').value  = direccion;
+    document.getElementById('e_numero').value     = numero;
+    document.getElementById('modalEditar').classList.add('show');
+  }
+
+  function cerrarModal() {
+    document.getElementById('modalEditar').classList.remove('show');
+  }
+
+  async function guardarEdicion() {
+    const device_id = document.getElementById('e_device_id').value;
+    const nombre    = document.getElementById('e_nombre').value;
+    const direccion = document.getElementById('e_direccion').value;
+    const numero    = document.getElementById('e_numero').value;
+
+    await fetch(`${API}/api/admin/clientes/${device_id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-admin-key': ADMIN_KEY },
+      body: JSON.stringify({ nombre, direccion, numero_emergencia: numero })
+    });
+    cerrarModal();
+    toast('Cliente actualizado ✅');
+    cargarClientes();
+  }
+
+  function toast(msg, color = '#22c55e') {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.style.background = color; t.style.display = 'block';
+    setTimeout(() => t.style.display = 'none', 3000);
+  }
+
+  document.getElementById('adminKey').addEventListener('keydown', e => {
+    if (e.key === 'Enter') login();
+  });
+</script>
+</body>
+</html>
