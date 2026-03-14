@@ -175,6 +175,63 @@ app.put('/api/admin/clientes/:device_id', async (req, res) => {
   );
   res.json({ ok: true });
 });
+// ── BOTÓN DE PÁNICO ───────────────────────────────
+app.post('/api/panico', async (req, res) => {
+  const { device_id } = req.body;
+  if (!device_id) return res.status(400).json({ error: 'device_id requerido' });
+
+  const result = await db.query(
+    'SELECT * FROM clientes WHERE device_id = $1 AND activo = true',
+    [device_id]
+  );
+
+  if (result.rows.length === 0)
+    return res.status(404).json({ error: 'Dispositivo no registrado' });
+
+  const cliente = result.rows[0];
+
+  await db.query(
+    'INSERT INTO eventos (device_id, tipo, detalle) VALUES ($1, $2, $3)',
+    [device_id, 'PANICO', `Botón de pánico activado por ${cliente.nombre}`]
+  );
+
+  const msgVoz = `Atención. Alerta de emergencia personal. 
+    ${cliente.nombre} necesita ayuda urgente. 
+    Domicilio: ${cliente.direccion}. 
+    Contactar inmediatamente. 
+    Repito: ${cliente.nombre} en ${cliente.direccion} necesita ayuda.`;
+
+  try {
+    // Llamar al familiar
+    await twilioClient.calls.create({
+      twiml: `<Response>
+                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
+                <Pause length="1"/>
+                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
+              </Response>`,
+      to: cliente.numero_emergencia,
+      from: process.env.TWILIO_FROM
+    });
+
+    // Llamar también al número de emergencias configurado
+    await twilioClient.calls.create({
+      twiml: `<Response>
+                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
+                <Pause length="1"/>
+                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
+              </Response>`,
+      to: cliente.numero_emergencia,
+      from: process.env.TWILIO_FROM
+    });
+
+    console.log(`🆘 Pánico activado por ${cliente.nombre}`);
+    res.json({ ok: true, mensaje: 'Llamadas de emergencia enviadas' });
+
+  } catch (err) {
+    console.error('Error Twilio:', err.message);
+    res.status(500).json({ error: 'Error al realizar llamada' });
+  }
+});
 
 // ── ARRANCAR ───────────────────────────────────────
 const PORT = process.env.PORT || 3000;
