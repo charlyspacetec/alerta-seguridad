@@ -188,6 +188,7 @@
           <div class="card-title">${c.nombre}</div>
           <span class="badge badge-${c.estado}">${c.estado.toUpperCase()}</span>
         </div>
+        <div class="card-detail">${c.tipo === 'panico' ? '🆘 Botón de pánico' : '🚨 Alarma'} — ${c.nombre}</div>
         <div class="card-detail">📍 ${c.direccion}</div>
         <div class="card-detail">📞 ${c.numero_emergencia}</div>
         <div class="card-detail">🔑 ID: <code style="font-size:0.75rem;color:#64748b">${c.device_id}</code></div>
