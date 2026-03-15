@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
-const twilio = require('twilio');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
@@ -13,8 +12,17 @@ app.use(express.static('public'));
 // Base de datos
 const db = new Pool({ connectionString: process.env.DATABASE_URL });
 
-// Twilio
-const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
+// ── ENVIAR WHATSAPP VIA CALLMEBOT ──────────────────
+async function enviarWhatsApp(mensaje) {
+  const phone  = process.env.CALLMEBOT_PHONE;  // ej: 5492374108118
+  const apikey = process.env.CALLMEBOT_APIKEY; // ej: 2895127
+  const texto  = encodeURIComponent(mensaje);
+  const url    = `https://api.callmebot.com/whatsapp.php?phone=${phone}&text=${texto}&apikey=${apikey}`;
+
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`CallMeBot error: ${r.status}`);
+  console.log('✅ WhatsApp enviado');
+}
 
 // ── INICIALIZAR TABLAS ─────────────────────────────
 async function initDB() {
@@ -40,7 +48,6 @@ async function initDB() {
     );
   `);
 
-  // ✅ FIX: Agregar columna 'tipo' si la tabla ya existía sin ella
   await db.query(`
     ALTER TABLE clientes ADD COLUMN IF NOT EXISTS tipo TEXT DEFAULT 'alarma';
   `);
@@ -48,7 +55,7 @@ async function initDB() {
   console.log('✅ Base de datos lista');
 }
 
-// ── HEARTBEAT (ESP32 avisa que sigue online) ───────
+// ── HEARTBEAT ──────────────────────────────────────
 app.post('/api/heartbeat', async (req, res) => {
   const { device_id } = req.body;
   if (!device_id) return res.status(400).json({ error: 'device_id requerido' });
@@ -60,7 +67,7 @@ app.post('/api/heartbeat', async (req, res) => {
   res.json({ ok: true });
 });
 
-// ── ALARMA DISPARADA (ESP32 avisa que se activó) ───
+// ── ALARMA ─────────────────────────────────────────
 app.post('/api/alarma', async (req, res) => {
   const { device_id } = req.body;
   if (!device_id) return res.status(400).json({ error: 'device_id requerido' });
@@ -80,39 +87,47 @@ app.post('/api/alarma', async (req, res) => {
     [device_id, 'ALARMA', `Alarma activada en ${cliente.direccion}`]
   );
 
-  const msgVoz = `Atención. Alerta de seguridad. 
-    Se activó la alarma en el domicilio ${cliente.direccion}. 
-    Propietario: ${cliente.nombre}. 
-    Por favor enviar una unidad. 
-    Repito: ${cliente.direccion}.`;
+  const mensaje = `🚨 ALERTA DE SEGURIDAD\n\nSe activó la alarma en:\n📍 ${cliente.direccion}\n👤 ${cliente.nombre}\n📞 ${cliente.numero_emergencia}\n\n⚠️ Por favor enviar una unidad.`;
 
   try {
-    await twilioClient.calls.create({
-      twiml: `<Response>
-                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
-                <Pause length="1"/>
-                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
-              </Response>`,
-      to: cliente.numero_emergencia,
-      from: process.env.TWILIO_FROM
-    });
-
-    await twilioClient.calls.create({
-      twiml: `<Response>
-                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
-                <Pause length="1"/>
-                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
-              </Response>`,
-      to: process.env.COMISARIA_DEFAULT,
-      from: process.env.TWILIO_FROM
-    });
-
+    await enviarWhatsApp(mensaje);
     console.log(`🚨 Alarma procesada para ${cliente.nombre}`);
-    res.json({ ok: true, mensaje: 'Llamadas enviadas' });
-
+    res.json({ ok: true, mensaje: 'Alerta WhatsApp enviada' });
   } catch (err) {
-    console.error('Error Twilio:', err.message);
-    res.status(500).json({ error: 'Error al realizar llamada' });
+    console.error('Error CallMeBot:', err.message);
+    res.status(500).json({ error: 'Error al enviar alerta: ' + err.message });
+  }
+});
+
+// ── BOTÓN DE PÁNICO ────────────────────────────────
+app.post('/api/panico', async (req, res) => {
+  const { device_id } = req.body;
+  if (!device_id) return res.status(400).json({ error: 'device_id requerido' });
+
+  const result = await db.query(
+    'SELECT * FROM clientes WHERE device_id = $1 AND activo = true',
+    [device_id]
+  );
+
+  if (result.rows.length === 0)
+    return res.status(404).json({ error: 'Dispositivo no registrado' });
+
+  const cliente = result.rows[0];
+
+  await db.query(
+    'INSERT INTO eventos (device_id, tipo, detalle) VALUES ($1, $2, $3)',
+    [device_id, 'PANICO', `Botón de pánico activado por ${cliente.nombre}`]
+  );
+
+  const mensaje = `🆘 EMERGENCIA PERSONAL\n\n${cliente.nombre} necesita ayuda urgente!\n📍 ${cliente.direccion}\n📞 ${cliente.numero_emergencia}\n\n⚠️ Contactar inmediatamente.`;
+
+  try {
+    await enviarWhatsApp(mensaje);
+    console.log(`🆘 Pánico activado por ${cliente.nombre}`);
+    res.json({ ok: true, mensaje: 'Alerta WhatsApp enviada' });
+  } catch (err) {
+    console.error('Error CallMeBot:', err.message);
+    res.status(500).json({ error: 'Error al enviar alerta: ' + err.message });
   }
 });
 
@@ -170,11 +185,11 @@ app.post('/api/admin/clientes', async (req, res) => {
     res.json({ ok: true, device_id, mensaje: 'Cliente creado. Grabar device_id en el ESP32.' });
   } catch (err) {
     console.error('Error al crear cliente:', err.message);
-    res.status(500).json({ error: 'Error al guardar en base de datos: ' + err.message });
+    res.status(500).json({ error: 'Error al guardar: ' + err.message });
   }
 });
 
-// ── PANEL ADMIN — actualizar número emergencia ────
+// ── PANEL ADMIN — actualizar cliente ──────────────
 app.put('/api/admin/clientes/:device_id', async (req, res) => {
   if (req.headers['x-admin-key'] !== process.env.ADMIN_KEY)
     return res.status(401).json({ error: 'No autorizado' });
@@ -185,64 +200,6 @@ app.put('/api/admin/clientes/:device_id', async (req, res) => {
     [numero_emergencia, nombre, direccion, req.params.device_id]
   );
   res.json({ ok: true });
-});
-
-// ── BOTÓN DE PÁNICO ───────────────────────────────
-app.post('/api/panico', async (req, res) => {
-  const { device_id } = req.body;
-  if (!device_id) return res.status(400).json({ error: 'device_id requerido' });
-
-  const result = await db.query(
-    'SELECT * FROM clientes WHERE device_id = $1 AND activo = true',
-    [device_id]
-  );
-
-  if (result.rows.length === 0)
-    return res.status(404).json({ error: 'Dispositivo no registrado' });
-
-  const cliente = result.rows[0];
-
-  await db.query(
-    'INSERT INTO eventos (device_id, tipo, detalle) VALUES ($1, $2, $3)',
-    [device_id, 'PANICO', `Botón de pánico activado por ${cliente.nombre}`]
-  );
-
-  const msgVoz = `Atención. Alerta de emergencia personal. 
-    ${cliente.nombre} necesita ayuda urgente. 
-    Domicilio: ${cliente.direccion}. 
-    Contactar inmediatamente. 
-    Repito: ${cliente.nombre} en ${cliente.direccion} necesita ayuda.`;
-
-  try {
-    // Llamar al familiar
-    await twilioClient.calls.create({
-      twiml: `<Response>
-                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
-                <Pause length="1"/>
-                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
-              </Response>`,
-      to: cliente.numero_emergencia,
-      from: process.env.TWILIO_FROM
-    });
-
-    // ✅ FIX: Llamar a la comisaría (antes llamaba dos veces al familiar)
-    await twilioClient.calls.create({
-      twiml: `<Response>
-                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
-                <Pause length="1"/>
-                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
-              </Response>`,
-      to: process.env.COMISARIA_DEFAULT,
-      from: process.env.TWILIO_FROM
-    });
-
-    console.log(`🆘 Pánico activado por ${cliente.nombre}`);
-    res.json({ ok: true, mensaje: 'Llamadas de emergencia enviadas' });
-
-  } catch (err) {
-    console.error('Error Twilio:', err.message);
-    res.status(500).json({ error: 'Error al realizar llamada' });
-  }
 });
 
 // ── ARRANCAR ───────────────────────────────────────
