@@ -1,296 +1,252 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Panel de Control — Alerta Seguridad</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
-  header { background: #1e293b; padding: 20px; border-bottom: 2px solid #ef4444; display: flex; align-items: center; gap: 12px; }
-  header h1 { font-size: 1.3rem; color: #f1f5f9; }
-  header span { font-size: 1.8rem; }
-  .login { max-width: 380px; margin: 80px auto; background: #1e293b; padding: 32px; border-radius: 12px; }
-  .login h2 { margin-bottom: 20px; color: #f1f5f9; }
-  input, select { width: 100%; padding: 10px 14px; margin-bottom: 14px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 1rem; }
-  button { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 0.95rem; font-weight: bold; transition: opacity 0.2s; }
-  button:hover { opacity: 0.85; }
-  .btn-primary { background: #ef4444; color: white; width: 100%; }
-  .btn-success { background: #22c55e; color: white; }
-  .btn-warning { background: #f59e0b; color: white; }
-  .btn-small { padding: 6px 12px; font-size: 0.8rem; }
-  .container { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
-  .tabs { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
-  .tab { padding: 10px 20px; border-radius: 8px; background: #1e293b; color: #94a3b8; cursor: pointer; border: none; font-size: 0.95rem; }
-  .tab.active { background: #ef4444; color: white; }
-  .card { background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; border-left: 4px solid #334155; }
-  .card.online { border-left-color: #22c55e; }
-  .card.offline { border-left-color: #ef4444; }
-  .card-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-  .card-title { font-size: 1rem; font-weight: bold; color: #f1f5f9; }
-  .badge { padding: 3px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; }
-  .badge-online { background: #166534; color: #86efac; }
-  .badge-offline { background: #7f1d1d; color: #fca5a5; }
-  .badge-alarma { background: #7f1d1d; color: #fca5a5; }
-  .badge-heartbeat { background: #1e3a5f; color: #93c5fd; }
-  .card-detail { font-size: 0.85rem; color: #94a3b8; margin-bottom: 4px; }
-  .form-row { display: flex; gap: 10px; flex-wrap: wrap; }
-  .form-row input { flex: 1; min-width: 180px; }
-  .section-title { font-size: 1.1rem; font-weight: bold; color: #f1f5f9; margin-bottom: 16px; }
-  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px; }
-  .stat { background: #1e293b; border-radius: 10px; padding: 16px; text-align: center; }
-  .stat-num { font-size: 2rem; font-weight: bold; }
-  .stat-label { font-size: 0.8rem; color: #94a3b8; margin-top: 4px; }
-  .green { color: #22c55e; }
-  .red { color: #ef4444; }
-  .yellow { color: #f59e0b; }
-  .empty { text-align: center; color: #475569; padding: 40px; }
-  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; justify-content: center; align-items: center; }
-  .modal-overlay.show { display: flex; }
-  .modal { background: #1e293b; border-radius: 12px; padding: 28px; width: 90%; max-width: 440px; }
-  .modal h3 { margin-bottom: 16px; color: #f1f5f9; }
-  .modal-btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
-  .btn-cancel { background: #334155; color: #e2e8f0; }
-  #toast { position: fixed; bottom: 24px; right: 24px; background: #22c55e; color: white; padding: 12px 20px; border-radius: 8px; font-weight: bold; display: none; z-index: 200; }
-</style>
-</head>
-<body>
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const { Pool } = require('pg');
+const twilio = require('twilio');
+const { v4: uuidv4 } = require('uuid');
 
-<!-- LOGIN -->
-<div id="loginSection">
-  <div class="login">
-    <h2>🔐 Panel de Control</h2>
-    <input type="password" id="adminKey" placeholder="Clave de administrador" />
-    <button class="btn-primary" onclick="login()">Ingresar</button>
-    <p id="loginError" style="color:#ef4444;margin-top:10px;font-size:0.85rem;"></p>
-  </div>
-</div>
+const app = express();
+app.use(cors());
+app.use(express.json());
+app.use(express.static('public'));
 
-<!-- PANEL -->
-<div id="panelSection" style="display:none;">
-  <header>
-    <span>🚨</span>
-    <h1>Alerta Seguridad — Panel de Control</h1>
-  </header>
+// Base de datos
+const db = new Pool({ connectionString: process.env.DATABASE_URL });
 
-  <div class="container">
-    <!-- Stats -->
-    <div class="stat-grid" id="stats"></div>
+// Twilio
+const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
 
-    <!-- Tabs -->
-    <div class="tabs">
-      <button class="tab active" onclick="showTab('clientes')">👥 Clientes</button>
-      <button class="tab" onclick="showTab('eventos')">📋 Historial</button>
-      <button class="tab" onclick="showTab('nuevo')">➕ Nuevo Cliente</button>
-    </div>
+// ── INICIALIZAR TABLAS ─────────────────────────────
+async function initDB() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS clientes (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      nombre TEXT NOT NULL,
+      direccion TEXT NOT NULL,
+      numero_emergencia TEXT NOT NULL,
+      device_id TEXT UNIQUE NOT NULL,
+      tipo TEXT DEFAULT 'alarma',
+      ultimo_heartbeat TIMESTAMP,
+      activo BOOLEAN DEFAULT true,
+      creado_en TIMESTAMP DEFAULT NOW()
+    );
 
-    <!-- Tab Clientes -->
-    <div id="tab-clientes">
-      <div class="section-title">Dispositivos activos</div>
-      <div id="listaClientes"></div>
-    </div>
+    CREATE TABLE IF NOT EXISTS eventos (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      device_id TEXT NOT NULL,
+      tipo TEXT NOT NULL,
+      detalle TEXT,
+      creado_en TIMESTAMP DEFAULT NOW()
+    );
+  `);
 
-    <!-- Tab Eventos -->
-    <div id="tab-eventos" style="display:none;">
-      <div class="section-title">Últimos 100 eventos</div>
-      <div id="listaEventos"></div>
-    </div>
+  // ✅ FIX: Agregar columna 'tipo' si la tabla ya existía sin ella
+  await db.query(`
+    ALTER TABLE clientes ADD COLUMN IF NOT EXISTS tipo TEXT DEFAULT 'alarma';
+  `);
 
-    <!-- Tab Nuevo -->
-    <div id="tab-nuevo" style="display:none;">
-      <div class="card">
-        <div class="section-title">Registrar nuevo cliente</div>
-        <div class="form-row">
-          <input id="n_nombre" placeholder="Nombre completo" />
-          <input id="n_direccion" placeholder="Dirección" />
-        </div>
-        <div class="form-row">
-          <input id="n_numero" placeholder="Número de emergencia (+549...)" />
-          <select id="n_tipo">
-            <option value="alarma">🚨 Alarma</option>
-            <option value="panico">🆘 Botón de pánico</option>
-          </select>
-        </div>
-        <button class="btn-success" onclick="crearCliente()">Crear cliente y generar ID de dispositivo</button>
-        <div id="nuevoResult" style="margin-top:16px;"></div>
-      </div>
-    </div>
-  </div>
-</div>
+  console.log('✅ Base de datos lista');
+}
 
-<!-- MODAL EDITAR -->
-<div class="modal-overlay" id="modalEditar">
-  <div class="modal">
-    <h3>✏️ Editar cliente</h3>
-    <input id="e_nombre" placeholder="Nombre" />
-    <input id="e_direccion" placeholder="Dirección" />
-    <input id="e_numero" placeholder="Número de emergencia" />
-    <input type="hidden" id="e_device_id" />
-    <div class="modal-btns">
-      <button class="btn-cancel" onclick="cerrarModal()">Cancelar</button>
-      <button class="btn-success" onclick="guardarEdicion()">Guardar</button>
-    </div>
-  </div>
-</div>
+// ── HEARTBEAT (ESP32 avisa que sigue online) ───────
+app.post('/api/heartbeat', async (req, res) => {
+  const { device_id } = req.body;
+  if (!device_id) return res.status(400).json({ error: 'device_id requerido' });
 
-<div id="toast"></div>
+  await db.query(
+    'UPDATE clientes SET ultimo_heartbeat = NOW() WHERE device_id = $1',
+    [device_id]
+  );
+  res.json({ ok: true });
+});
 
-<script>
-  let ADMIN_KEY = '';
-  const API = '';
+// ── ALARMA DISPARADA (ESP32 avisa que se activó) ───
+app.post('/api/alarma', async (req, res) => {
+  const { device_id } = req.body;
+  if (!device_id) return res.status(400).json({ error: 'device_id requerido' });
 
-  function login() {
-    ADMIN_KEY = document.getElementById('adminKey').value;
-    if (!ADMIN_KEY) return;
-    fetch(`${API}/api/admin/clientes`, { headers: { 'x-admin-key': ADMIN_KEY } })
-      .then(r => {
-        if (r.status === 401) { document.getElementById('loginError').textContent = 'Clave incorrecta'; return; }
-        document.getElementById('loginSection').style.display = 'none';
-        document.getElementById('panelSection').style.display = 'block';
-        cargarTodo();
-        setInterval(cargarTodo, 30000); // auto-refresh cada 30s
-      });
-  }
+  const result = await db.query(
+    'SELECT * FROM clientes WHERE device_id = $1 AND activo = true',
+    [device_id]
+  );
 
-  function showTab(tab) {
-    ['clientes','eventos','nuevo'].forEach(t => {
-      document.getElementById(`tab-${t}`).style.display = t === tab ? 'block' : 'none';
+  if (result.rows.length === 0)
+    return res.status(404).json({ error: 'Dispositivo no registrado' });
+
+  const cliente = result.rows[0];
+
+  await db.query(
+    'INSERT INTO eventos (device_id, tipo, detalle) VALUES ($1, $2, $3)',
+    [device_id, 'ALARMA', `Alarma activada en ${cliente.direccion}`]
+  );
+
+  const msgVoz = `Atención. Alerta de seguridad. 
+    Se activó la alarma en el domicilio ${cliente.direccion}. 
+    Propietario: ${cliente.nombre}. 
+    Por favor enviar una unidad. 
+    Repito: ${cliente.direccion}.`;
+
+  try {
+    await twilioClient.calls.create({
+      twiml: `<Response>
+                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
+                <Pause length="1"/>
+                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
+              </Response>`,
+      to: cliente.numero_emergencia,
+      from: process.env.TWILIO_FROM
     });
-    document.querySelectorAll('.tab').forEach((el, i) => {
-      el.classList.toggle('active', ['clientes','eventos','nuevo'][i] === tab);
+
+    await twilioClient.calls.create({
+      twiml: `<Response>
+                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
+                <Pause length="1"/>
+                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
+              </Response>`,
+      to: process.env.COMISARIA_DEFAULT,
+      from: process.env.TWILIO_FROM
     });
-    if (tab === 'eventos') cargarEventos();
+
+    console.log(`🚨 Alarma procesada para ${cliente.nombre}`);
+    res.json({ ok: true, mensaje: 'Llamadas enviadas' });
+
+  } catch (err) {
+    console.error('Error Twilio:', err.message);
+    res.status(500).json({ error: 'Error al realizar llamada' });
   }
+});
 
-  function cargarTodo() {
-    cargarClientes();
+// ── PANEL ADMIN — listar clientes ──────────────────
+app.get('/api/admin/clientes', async (req, res) => {
+  if (req.headers['x-admin-key'] !== process.env.ADMIN_KEY)
+    return res.status(401).json({ error: 'No autorizado' });
+
+  const result = await db.query(`
+    SELECT 
+      id, nombre, direccion, numero_emergencia, device_id, tipo, activo,
+      ultimo_heartbeat,
+      CASE 
+        WHEN ultimo_heartbeat > NOW() - INTERVAL '10 minutes' THEN 'online'
+        ELSE 'offline'
+      END AS estado
+    FROM clientes 
+    ORDER BY creado_en DESC
+  `);
+  res.json(result.rows);
+});
+
+// ── PANEL ADMIN — historial de eventos ────────────
+app.get('/api/admin/eventos', async (req, res) => {
+  if (req.headers['x-admin-key'] !== process.env.ADMIN_KEY)
+    return res.status(401).json({ error: 'No autorizado' });
+
+  const result = await db.query(`
+    SELECT e.*, c.nombre, c.direccion 
+    FROM eventos e
+    LEFT JOIN clientes c ON e.device_id = c.device_id
+    ORDER BY e.creado_en DESC 
+    LIMIT 100
+  `);
+  res.json(result.rows);
+});
+
+// ── PANEL ADMIN — agregar cliente ─────────────────
+app.post('/api/admin/clientes', async (req, res) => {
+  if (req.headers['x-admin-key'] !== process.env.ADMIN_KEY)
+    return res.status(401).json({ error: 'No autorizado' });
+
+  const { nombre, direccion, numero_emergencia, tipo = 'alarma' } = req.body;
+
+  if (!nombre || !direccion || !numero_emergencia)
+    return res.status(400).json({ error: 'Faltan campos obligatorios' });
+
+  const device_id = uuidv4();
+
+  try {
+    await db.query(
+      'INSERT INTO clientes (nombre, direccion, numero_emergencia, device_id, tipo) VALUES ($1,$2,$3,$4,$5)',
+      [nombre, direccion, numero_emergencia, device_id, tipo]
+    );
+    res.json({ ok: true, device_id, mensaje: 'Cliente creado. Grabar device_id en el ESP32.' });
+  } catch (err) {
+    console.error('Error al crear cliente:', err.message);
+    res.status(500).json({ error: 'Error al guardar en base de datos: ' + err.message });
   }
+});
 
-  async function cargarClientes() {
-    const r = await fetch(`${API}/api/admin/clientes`, { headers: { 'x-admin-key': ADMIN_KEY } });
-    const clientes = await r.json();
+// ── PANEL ADMIN — actualizar número emergencia ────
+app.put('/api/admin/clientes/:device_id', async (req, res) => {
+  if (req.headers['x-admin-key'] !== process.env.ADMIN_KEY)
+    return res.status(401).json({ error: 'No autorizado' });
 
-    const online  = clientes.filter(c => c.estado === 'online').length;
-    const offline = clientes.filter(c => c.estado === 'offline').length;
+  const { numero_emergencia, nombre, direccion } = req.body;
+  await db.query(
+    'UPDATE clientes SET numero_emergencia=$1, nombre=$2, direccion=$3 WHERE device_id=$4',
+    [numero_emergencia, nombre, direccion, req.params.device_id]
+  );
+  res.json({ ok: true });
+});
 
-    document.getElementById('stats').innerHTML = `
-      <div class="stat"><div class="stat-num">${clientes.length}</div><div class="stat-label">Total clientes</div></div>
-      <div class="stat"><div class="stat-num green">${online}</div><div class="stat-label">Online</div></div>
-      <div class="stat"><div class="stat-num red">${offline}</div><div class="stat-label">Offline</div></div>
-    `;
+// ── BOTÓN DE PÁNICO ───────────────────────────────
+app.post('/api/panico', async (req, res) => {
+  const { device_id } = req.body;
+  if (!device_id) return res.status(400).json({ error: 'device_id requerido' });
 
-    const lista = document.getElementById('listaClientes');
-    if (!clientes.length) { lista.innerHTML = '<div class="empty">No hay clientes registrados</div>'; return; }
+  const result = await db.query(
+    'SELECT * FROM clientes WHERE device_id = $1 AND activo = true',
+    [device_id]
+  );
 
-    lista.innerHTML = clientes.map(c => `
-      <div class="card ${c.estado}">
-        <div class="card-header">
-          <div class="card-title">${c.nombre}</div>
-          <span class="badge badge-${c.estado}">${c.estado.toUpperCase()}</span>
-        </div>
-        <div class="card-detail">${c.tipo === 'panico' ? '🆘 Botón de pánico' : '🚨 Alarma'} — ${c.nombre}</div>
-        <div class="card-detail">📍 ${c.direccion}</div>
-        <div class="card-detail">📞 ${c.numero_emergencia}</div>
-        <div class="card-detail">🔑 ID: <code style="font-size:0.75rem;color:#64748b">${c.device_id}</code></div>
-        <div class="card-detail">⏱ Último heartbeat: ${c.ultimo_heartbeat ? new Date(c.ultimo_heartbeat).toLocaleString('es-AR') : 'Nunca'}</div>
-        <div style="margin-top:12px;">
-          <button class="btn-warning btn-small" onclick="abrirModal('${c.device_id}','${c.nombre}','${c.direccion}','${c.numero_emergencia}')">✏️ Editar</button>
-        </div>
-      </div>
-    `).join('');
-  }
+  if (result.rows.length === 0)
+    return res.status(404).json({ error: 'Dispositivo no registrado' });
 
-  async function cargarEventos() {
-    const r = await fetch(`${API}/api/admin/eventos`, { headers: { 'x-admin-key': ADMIN_KEY } });
-    const eventos = await r.json();
-    const lista = document.getElementById('listaEventos');
-    if (!eventos.length) { lista.innerHTML = '<div class="empty">Sin eventos registrados</div>'; return; }
-    lista.innerHTML = eventos.map(e => `
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">${e.nombre || e.device_id}</div>
-          <span class="badge badge-${e.tipo === 'ALARMA' ? 'alarma' : 'heartbeat'}">${e.tipo}</span>
-        </div>
-        <div class="card-detail">📍 ${e.direccion || ''}</div>
-        <div class="card-detail">📝 ${e.detalle}</div>
-        <div class="card-detail">🕐 ${new Date(e.creado_en).toLocaleString('es-AR')}</div>
-      </div>
-    `).join('');
-  }
+  const cliente = result.rows[0];
 
-  async function crearCliente() {
-    const nombre    = document.getElementById('n_nombre').value;
-    const direccion = document.getElementById('n_direccion').value;
-    const numero    = document.getElementById('n_numero').value;
-    const tipo      = document.getElementById('n_tipo').value;
-    if (!nombre || !direccion || !numero) { toast('Completá todos los campos', '#ef4444'); return; }
+  await db.query(
+    'INSERT INTO eventos (device_id, tipo, detalle) VALUES ($1, $2, $3)',
+    [device_id, 'PANICO', `Botón de pánico activado por ${cliente.nombre}`]
+  );
 
-    const r = await fetch(`${API}/api/admin/clientes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-admin-key': ADMIN_KEY },
-      body: JSON.stringify({ nombre, direccion, numero_emergencia: numero, tipo })
+  const msgVoz = `Atención. Alerta de emergencia personal. 
+    ${cliente.nombre} necesita ayuda urgente. 
+    Domicilio: ${cliente.direccion}. 
+    Contactar inmediatamente. 
+    Repito: ${cliente.nombre} en ${cliente.direccion} necesita ayuda.`;
+
+  try {
+    // Llamar al familiar
+    await twilioClient.calls.create({
+      twiml: `<Response>
+                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
+                <Pause length="1"/>
+                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
+              </Response>`,
+      to: cliente.numero_emergencia,
+      from: process.env.TWILIO_FROM
     });
-    const data = await r.json();
-    console.log('Respuesta servidor:', data);
 
-    if (!data.device_id) {
-      document.getElementById('nuevoResult').innerHTML = `
-        <div class="card" style="border-left-color:#ef4444;">
-          <div class="card-title" style="color:#ef4444;">❌ Error</div>
-          <div class="card-detail">${JSON.stringify(data)}</div>
-        </div>
-      `;
-      return;
-    }
-
-    document.getElementById('nuevoResult').innerHTML = `
-      <div class="card online">
-        <div class="card-title">✅ Cliente creado</div>
-        <div class="card-detail" style="margin-top:8px;">Grabá este ID en el ESP32:</div>
-        <div style="background:#0f172a;padding:12px;border-radius:8px;margin-top:8px;word-break:break-all;font-family:monospace;color:#22c55e;font-size:0.9rem;">${data.device_id}</div>
-      </div>
-    `;
-    ['n_nombre','n_direccion','n_numero'].forEach(id => document.getElementById(id).value = '');
-    cargarClientes();
-  }
-
-  function abrirModal(device_id, nombre, direccion, numero) {
-    document.getElementById('e_device_id').value  = device_id;
-    document.getElementById('e_nombre').value     = nombre;
-    document.getElementById('e_direccion').value  = direccion;
-    document.getElementById('e_numero').value     = numero;
-    document.getElementById('modalEditar').classList.add('show');
-  }
-
-  function cerrarModal() {
-    document.getElementById('modalEditar').classList.remove('show');
-  }
-
-  async function guardarEdicion() {
-    const device_id = document.getElementById('e_device_id').value;
-    const nombre    = document.getElementById('e_nombre').value;
-    const direccion = document.getElementById('e_direccion').value;
-    const numero    = document.getElementById('e_numero').value;
-
-    await fetch(`${API}/api/admin/clientes/${device_id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'x-admin-key': ADMIN_KEY },
-      body: JSON.stringify({ nombre, direccion, numero_emergencia: numero })
+    // ✅ FIX: Llamar a la comisaría (antes llamaba dos veces al familiar)
+    await twilioClient.calls.create({
+      twiml: `<Response>
+                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
+                <Pause length="1"/>
+                <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
+              </Response>`,
+      to: process.env.COMISARIA_DEFAULT,
+      from: process.env.TWILIO_FROM
     });
-    cerrarModal();
-    toast('Cliente actualizado ✅');
-    cargarClientes();
-  }
 
-  function toast(msg, color = '#22c55e') {
-    const t = document.getElementById('toast');
-    t.textContent = msg; t.style.background = color; t.style.display = 'block';
-    setTimeout(() => t.style.display = 'none', 3000);
-  }
+    console.log(`🆘 Pánico activado por ${cliente.nombre}`);
+    res.json({ ok: true, mensaje: 'Llamadas de emergencia enviadas' });
 
-  document.getElementById('adminKey').addEventListener('keydown', e => {
-    if (e.key === 'Enter') login();
-  });
-</script>
-</body>
-</html>
+  } catch (err) {
+    console.error('Error Twilio:', err.message);
+    res.status(500).json({ error: 'Error al realizar llamada' });
+  }
+});
+
+// ── ARRANCAR ───────────────────────────────────────
+const PORT = process.env.PORT || 3000;
+initDB().then(() => {
+  app.listen(PORT, () => console.log(`🚀 Servidor corriendo en puerto ${PORT}`));
+});
