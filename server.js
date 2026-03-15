@@ -39,6 +39,12 @@ async function initDB() {
       creado_en TIMESTAMP DEFAULT NOW()
     );
   `);
+
+  // ✅ FIX: Agregar columna 'tipo' si la tabla ya existía sin ella
+  await db.query(`
+    ALTER TABLE clientes ADD COLUMN IF NOT EXISTS tipo TEXT DEFAULT 'alarma';
+  `);
+
   console.log('✅ Base de datos lista');
 }
 
@@ -69,20 +75,17 @@ app.post('/api/alarma', async (req, res) => {
 
   const cliente = result.rows[0];
 
-  // Registrar evento
   await db.query(
     'INSERT INTO eventos (device_id, tipo, detalle) VALUES ($1, $2, $3)',
     [device_id, 'ALARMA', `Alarma activada en ${cliente.direccion}`]
   );
 
-  // Mensaje de voz
   const msgVoz = `Atención. Alerta de seguridad. 
     Se activó la alarma en el domicilio ${cliente.direccion}. 
     Propietario: ${cliente.nombre}. 
     Por favor enviar una unidad. 
     Repito: ${cliente.direccion}.`;
 
-  // Llamar al número de emergencia del cliente
   try {
     await twilioClient.calls.create({
       twiml: `<Response>
@@ -94,7 +97,6 @@ app.post('/api/alarma', async (req, res) => {
       from: process.env.TWILIO_FROM
     });
 
-    // También llamar al número de la comisaría fija
     await twilioClient.calls.create({
       twiml: `<Response>
                 <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
@@ -121,7 +123,7 @@ app.get('/api/admin/clientes', async (req, res) => {
 
   const result = await db.query(`
     SELECT 
-      id, nombre, direccion, numero_emergencia, device_id, activo,
+      id, nombre, direccion, numero_emergencia, device_id, tipo, activo,
       ultimo_heartbeat,
       CASE 
         WHEN ultimo_heartbeat > NOW() - INTERVAL '10 minutes' THEN 'online'
@@ -154,14 +156,22 @@ app.post('/api/admin/clientes', async (req, res) => {
     return res.status(401).json({ error: 'No autorizado' });
 
   const { nombre, direccion, numero_emergencia, tipo = 'alarma' } = req.body;
-  const device_id = uuidv4(); // ID único para el ESP32
 
-  await db.query(
-    'INSERT INTO clientes (nombre, direccion, numero_emergencia, device_id, tipo) VALUES ($1,$2,$3,$4,$5)',
-    [nombre, direccion, numero_emergencia, device_id, tipo]
+  if (!nombre || !direccion || !numero_emergencia)
+    return res.status(400).json({ error: 'Faltan campos obligatorios' });
+
+  const device_id = uuidv4();
+
+  try {
+    await db.query(
+      'INSERT INTO clientes (nombre, direccion, numero_emergencia, device_id, tipo) VALUES ($1,$2,$3,$4,$5)',
+      [nombre, direccion, numero_emergencia, device_id, tipo]
     );
-
-  res.json({ ok: true, device_id, mensaje: 'Cliente creado. Grabar device_id en el ESP32.' });
+    res.json({ ok: true, device_id, mensaje: 'Cliente creado. Grabar device_id en el ESP32.' });
+  } catch (err) {
+    console.error('Error al crear cliente:', err.message);
+    res.status(500).json({ error: 'Error al guardar en base de datos: ' + err.message });
+  }
 });
 
 // ── PANEL ADMIN — actualizar número emergencia ────
@@ -176,6 +186,7 @@ app.put('/api/admin/clientes/:device_id', async (req, res) => {
   );
   res.json({ ok: true });
 });
+
 // ── BOTÓN DE PÁNICO ───────────────────────────────
 app.post('/api/panico', async (req, res) => {
   const { device_id } = req.body;
@@ -214,14 +225,14 @@ app.post('/api/panico', async (req, res) => {
       from: process.env.TWILIO_FROM
     });
 
-    // Llamar también al número de emergencias configurado
+    // ✅ FIX: Llamar a la comisaría (antes llamaba dos veces al familiar)
     await twilioClient.calls.create({
       twiml: `<Response>
                 <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
                 <Pause length="1"/>
                 <Say language="es-MX" voice="Polly.Conchita">${msgVoz}</Say>
               </Response>`,
-      to: cliente.numero_emergencia,
+      to: process.env.COMISARIA_DEFAULT,
       from: process.env.TWILIO_FROM
     });
 
